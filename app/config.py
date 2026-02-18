@@ -1,41 +1,50 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from functools import lru_cache
-from typing import Optional
 import os
 
-
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings forced to load from environment variables."""
     
-    # Database - Default to localhost for development
-    database_url: str = "postgresql://webhook_user:password@localhost:5432/webhook_db"
+    # We use Field(alias=...) to ensure Pydantic looks for the EXACT name Railway provides
+    database_url: str = Field(
+        default="postgresql://webhook_user:password@localhost:5432/webhook_db",
+        validation_alias="DATABASE_URL"
+    )
     
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias="REDIS_URL"
+    )
     
-    # Application
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias="CELERY_BROKER_URL"
+    )
+    
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias="CELERY_RESULT_BACKEND"
+    )
+
     app_host: str = "0.0.0.0"
     app_port: int = 8000
-    
-    # Celery
-    celery_broker_url: str = "redis://localhost:6379/0"
-    celery_result_backend: str = "redis://localhost:6379/0"
 
     def __init__(self, **values):
         super().__init__(**values)
-        # Fix for Railway/Heroku which often provides 'postgres://' 
-        # but SQLAlchemy requires 'postgresql://'
+        # Force the postgresql:// prefix for SQLAlchemy compatibility
         if self.database_url.startswith("postgres://"):
             self.database_url = self.database_url.replace("postgres://", "postgresql://", 1)
+        
+        # Debug print (will show in Railway logs to confirm it's not localhost)
+        # We hide the password for safety
+        masked_url = self.database_url.split('@')[-1] if '@' in self.database_url else self.database_url
+        print(f"--- DB CONFIG LOADED. TARGET: {masked_url} ---")
 
     class Config:
-        env_file = ".env"
         case_sensitive = False
-        # Map environment variables like DATABASE_URL to settings.database_url
-        env_file_encoding = 'utf-8'
-
+        env_file = ".env"
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Get cached settings instance."""
     return Settings()
