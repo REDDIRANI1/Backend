@@ -1,5 +1,18 @@
 # 🎯 Getting Started Checklist
 
+## 🌐 Deployed API on Render (Live)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `https://backend-soxi.onrender.com/` | Health check |
+| `POST` | `https://backend-soxi.onrender.com/v1/webhooks/transactions` | Webhook endpoint |
+| `GET` | `https://backend-soxi.onrender.com/v1/transactions/{id}` | Get transaction status |
+
+Test health: `curl https://backend-soxi.onrender.com/`  
+Docs: https://backend-soxi.onrender.com/docs | https://backend-soxi.onrender.com/redoc
+
+---
+
 ## ✅ What's Been Created
 
 Your webhook service is **100% complete** and ready to use! Here's what you have:

@@ -2,6 +2,27 @@
 
 A production-ready FastAPI service that receives transaction webhooks from external payment processors (like RazorPay), acknowledges them immediately, and processes them reliably in the background.
 
+## 🌐 Live API (Render)
+
+**Base URL:** `https://backend-soxi.onrender.com`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Health check — returns `{"status":"HEALTHY","current_time":"..."}` |
+| `POST` | `/v1/webhooks/transactions` | Receive transaction webhook (returns 202 Accepted) |
+| `GET` | `/v1/transactions/{transaction_id}` | Get transaction status by ID |
+
+**Quick test (health):**
+```bash
+curl https://backend-soxi.onrender.com/
+```
+
+**Interactive docs (when service is awake):**
+- Swagger UI: https://backend-soxi.onrender.com/docs  
+- ReDoc: https://backend-soxi.onrender.com/redoc  
+
+---
+
 ## 🌟 Features
 
 - **Fast Response**: Returns `202 Accepted` within 500ms

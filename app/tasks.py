@@ -20,45 +20,50 @@ def process_transaction(self, transaction_id: str):
     Args:
         transaction_id: The unique transaction identifier
     """
-    db: Session = SessionLocal()
+    logger.info(f"Task received for transaction: {transaction_id}")
     
     try:
-        logger.info(f"Starting processing for transaction: {transaction_id}")
+        # Simulate external API call (long delay) 
+        # We do this BEFORE opening the database connection to free up the pool
+        time.sleep(25) 
         
-        # Simulate external API call with 30-second delay
-        time.sleep(30)
-        
-        # Update transaction status
-        transaction = db.query(Transaction).filter(
-            Transaction.transaction_id == transaction_id
-        ).first()
-        
-        if transaction:
-            transaction.status = TransactionStatus.PROCESSED
-            transaction.processed_at = datetime.utcnow()
-            db.commit()
-            logger.info(f"Successfully processed transaction: {transaction_id}")
-        else:
-            logger.error(f"Transaction not found: {transaction_id}")
+        db = SessionLocal()
+        try:
+            logger.info(f"Updating status for transaction: {transaction_id}")
+            transaction = db.query(Transaction).filter(
+                Transaction.transaction_id == transaction_id
+            ).first()
+            
+            if transaction:
+                transaction.status = TransactionStatus.PROCESSED
+                transaction.processed_at = datetime.utcnow()
+                db.commit()
+                logger.info(f"Successfully processed transaction: {transaction_id}")
+            else:
+                logger.error(f"Transaction not found in database: {transaction_id}")
+        except Exception as db_err:
+            db.rollback()
+            raise db_err
+        finally:
+            db.close()
             
     except Exception as e:
         logger.error(f"Error processing transaction {transaction_id}: {str(e)}")
-        db.rollback()
         
-        # Update status to FAILED
+        # Attempt to update status to FAILED as a fallback
+        fallback_db = SessionLocal()
         try:
-            transaction = db.query(Transaction).filter(
+            transaction = fallback_db.query(Transaction).filter(
                 Transaction.transaction_id == transaction_id
             ).first()
             if transaction:
                 transaction.status = TransactionStatus.FAILED
                 transaction.processed_at = datetime.utcnow()
-                db.commit()
+                fallback_db.commit()
         except Exception as update_error:
-            logger.error(f"Failed to update transaction status: {str(update_error)}")
+            logger.error(f"Failed to update transaction status to FAILED: {str(update_error)}")
+        finally:
+            fallback_db.close()
         
         # Retry the task
         raise self.retry(exc=e, countdown=60)
-        
-    finally:
-        db.close()

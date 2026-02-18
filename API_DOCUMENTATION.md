@@ -2,7 +2,7 @@
 
 ## Base URL
 - **Local**: `http://localhost:8000`
-- **Production**: `https://your-domain.com`
+- **Live (Render)**: `https://backend-soxi.onrender.com`
 
 ## Interactive Documentation
 Once the server is running, visit:

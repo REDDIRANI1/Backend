@@ -9,8 +9,8 @@ settings = get_settings()
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
-    pool_size=2,  # Smaller pool for free tier
-    max_overflow=5,
+    pool_size=10,  # Increased for concurrent tasks
+    max_overflow=20,
     pool_recycle=3600,  # Recycle connections after 1 hour
     echo=False,  # Disable SQL logging for performance
     connect_args={

@@ -55,7 +55,7 @@ services:
   celery_worker:
     build: .
     container_name: webhook_celery
-    command: celery -A app.celery_app worker --loglevel=info
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=10
     environment:
       - DATABASE_URL=postgresql://webhook_user:webhook_password@postgres:5432/webhook_db
       - REDIS_URL=redis://redis:6379/0

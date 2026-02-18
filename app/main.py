@@ -115,17 +115,12 @@ async def receive_webhook(
         logger.info(f"Created transaction: {webhook_data.transaction_id}")
         
         # Trigger background processing (non-blocking, fire-and-forget)
-        # Use threading to prevent blocking if Redis is slow or unavailable
-        def queue_task():
-            try:
-                process_transaction.delay(webhook_data.transaction_id)
-                logger.info(f"Background task queued for transaction: {webhook_data.transaction_id}")
-            except Exception as celery_error:
-                logger.warning(f"Could not queue background task (Redis/Celery may be unavailable): {str(celery_error)}")
-        
-        # Start task in background thread - don't wait for it
-        task_thread = threading.Thread(target=queue_task, daemon=True)
-        task_thread.start()
+        try:
+            process_transaction.delay(webhook_data.transaction_id)
+            logger.info(f"Background task queued for transaction: {webhook_data.transaction_id}")
+        except Exception as celery_error:
+            logger.warning(f"Could not queue background task (Redis/Celery may be unavailable): {str(celery_error)}")
+
         
         return WebhookResponse(
             message="Webhook received",
