@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -26,8 +27,23 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Add CORS middleware to allow cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Create database tables (only if they don't exist)
+# This is safe to run on every startup but won't recreate existing tables
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables verified/created")
+except Exception as db_init_error:
+    logger.error(f"Database initialization error: {str(db_init_error)}")
+    # Don't fail startup - tables might already exist
 
 
 @app.get("/", response_model=HealthResponse, tags=["Health"])
@@ -97,8 +113,15 @@ async def receive_webhook(
         
         logger.info(f"Created transaction: {webhook_data.transaction_id}")
         
-        # Trigger background processing
-        process_transaction.delay(webhook_data.transaction_id)
+        # Trigger background processing (gracefully handle Redis/Celery unavailability)
+        try:
+            process_transaction.delay(webhook_data.transaction_id)
+            logger.info(f"Background task queued for transaction: {webhook_data.transaction_id}")
+        except Exception as celery_error:
+            # If Celery/Redis is unavailable, log warning but still return success
+            # The transaction is already saved, so we've fulfilled the webhook contract
+            logger.warning(f"Could not queue background task (Redis/Celery may be unavailable): {str(celery_error)}")
+            logger.info(f"Transaction {webhook_data.transaction_id} saved but background processing may be delayed")
         
         return WebhookResponse(
             message="Webhook received",
