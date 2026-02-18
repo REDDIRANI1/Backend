@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List
 import logging
+import threading
 
 from app.database import get_db, engine, Base
 from app.schemas import (
@@ -109,19 +110,22 @@ async def receive_webhook(
         
         db.add(new_transaction)
         db.commit()
-        db.refresh(new_transaction)
+        # Removed db.refresh() - not needed and saves time
         
         logger.info(f"Created transaction: {webhook_data.transaction_id}")
         
-        # Trigger background processing (gracefully handle Redis/Celery unavailability)
-        try:
-            process_transaction.delay(webhook_data.transaction_id)
-            logger.info(f"Background task queued for transaction: {webhook_data.transaction_id}")
-        except Exception as celery_error:
-            # If Celery/Redis is unavailable, log warning but still return success
-            # The transaction is already saved, so we've fulfilled the webhook contract
-            logger.warning(f"Could not queue background task (Redis/Celery may be unavailable): {str(celery_error)}")
-            logger.info(f"Transaction {webhook_data.transaction_id} saved but background processing may be delayed")
+        # Trigger background processing (non-blocking, fire-and-forget)
+        # Use threading to prevent blocking if Redis is slow or unavailable
+        def queue_task():
+            try:
+                process_transaction.delay(webhook_data.transaction_id)
+                logger.info(f"Background task queued for transaction: {webhook_data.transaction_id}")
+            except Exception as celery_error:
+                logger.warning(f"Could not queue background task (Redis/Celery may be unavailable): {str(celery_error)}")
+        
+        # Start task in background thread - don't wait for it
+        task_thread = threading.Thread(target=queue_task, daemon=True)
+        task_thread.start()
         
         return WebhookResponse(
             message="Webhook received",

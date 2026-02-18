@@ -5,18 +5,21 @@ from app.config import get_settings
 
 settings = get_settings()
 
-# Create database engine with connection timeout settings for production
+# Create database engine with optimized settings for production
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
-    pool_size=5,  # Reduced for free tier deployments
-    max_overflow=10,
+    pool_size=2,  # Smaller pool for free tier
+    max_overflow=5,
+    pool_recycle=3600,  # Recycle connections after 1 hour
+    echo=False,  # Disable SQL logging for performance
     connect_args={
-        "connect_timeout": 10,  # 10 second connection timeout
+        "connect_timeout": 5,  # 5 second connection timeout (faster failure)
         "keepalives": 1,
         "keepalives_idle": 30,
         "keepalives_interval": 10,
         "keepalives_count": 5,
+        # Note: statement_timeout should be set via SQL, not connection args
     }
 )
 
