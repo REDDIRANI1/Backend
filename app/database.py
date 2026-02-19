@@ -9,17 +9,13 @@ settings = get_settings()
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
-    pool_size=10,  # Increased for concurrent tasks
+    pool_size=10,
     max_overflow=20,
-    pool_recycle=3600,  # Recycle connections after 1 hour
-    echo=False,  # Disable SQL logging for performance
+    pool_recycle=3600,
+    echo=False,
     connect_args={
-        "connect_timeout": 5,  # 5 second connection timeout (faster failure)
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5,
-        # Note: statement_timeout should be set via SQL, not connection args
+        "connect_timeout": 2,  # Faster timeout to meet < 500ms requirement
+        "options": "-c statement_timeout=3000ms"  # Kill any query taking > 3s
     }
 )
 

@@ -60,6 +60,8 @@ async def health_check():
     )
 
 
+from sqlalchemy.exc import IntegrityError
+
 @app.post(
     "/v1/webhooks/transactions",
     response_model=WebhookResponse,
@@ -72,32 +74,10 @@ async def receive_webhook(
 ):
     """
     Receive transaction webhook and process it in the background.
-    
-    This endpoint:
-    - Returns 202 Accepted immediately (within 500ms)
-    - Implements idempotency (duplicate transaction_id won't create duplicates)
-    - Processes transactions asynchronously with a 30-second delay
-    
-    Args:
-        webhook_data: Transaction webhook payload
-        db: Database session
-        
-    Returns:
-        Acknowledgment response with transaction_id
+    Optimized for < 500ms response time.
     """
+    start_time = datetime.utcnow()
     try:
-        # Check if transaction already exists (idempotency)
-        existing_transaction = db.query(Transaction).filter(
-            Transaction.transaction_id == webhook_data.transaction_id
-        ).first()
-        
-        if existing_transaction:
-            logger.info(f"Duplicate webhook received for transaction: {webhook_data.transaction_id}")
-            return WebhookResponse(
-                message="Webhook received (duplicate)",
-                transaction_id=webhook_data.transaction_id
-            )
-        
         # Create new transaction record
         new_transaction = Transaction(
             transaction_id=webhook_data.transaction_id,
@@ -110,26 +90,34 @@ async def receive_webhook(
         
         db.add(new_transaction)
         db.commit()
-        # Removed db.refresh() - not needed and saves time
         
-        logger.info(f"Created transaction: {webhook_data.transaction_id}")
-        
-        # Trigger background processing (non-blocking, fire-and-forget)
+        # Trigger background processing
         try:
             process_transaction.delay(webhook_data.transaction_id)
-            logger.info(f"Background task queued for transaction: {webhook_data.transaction_id}")
         except Exception as celery_error:
-            logger.warning(f"Could not queue background task (Redis/Celery may be unavailable): {str(celery_error)}")
+            logger.warning(f"Celery task queueing failed: {str(celery_error)}")
 
+        elapsed = (datetime.utcnow() - start_time).total_seconds() * 1000
+        logger.info(f"Webhook processed in {elapsed:.2f}ms for txn: {webhook_data.transaction_id}")
         
         return WebhookResponse(
             message="Webhook received",
             transaction_id=webhook_data.transaction_id
         )
         
+    except IntegrityError:
+        # This handles the duplicate transaction_id (idempotency)
+        db.rollback()
+        logger.info(f"Duplicate webhook (IntegrityError) for txn: {webhook_data.transaction_id}")
+        return WebhookResponse(
+            message="Webhook received (duplicate)",
+            transaction_id=webhook_data.transaction_id
+        )
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
         db.rollback()
+        # If it's a timeout or connection issue, this might still return 500
+        # But with reduced timeout in database.py, it will fail faster.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to process webhook"
