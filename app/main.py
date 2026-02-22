@@ -91,11 +91,17 @@ async def receive_webhook(
         db.add(new_transaction)
         db.commit()
         
-        # Trigger background processing
-        try:
-            process_transaction.delay(webhook_data.transaction_id)
-        except Exception as celery_error:
-            logger.warning(f"Celery task queueing failed: {str(celery_error)}")
+        # Trigger background processing in a separate thread - MUST NOT BLOCK
+        # Celery.delay() connects to Redis synchronously; if Redis is unreachable
+        # (e.g. not configured on Render), it blocks 5+ seconds → 502 timeout
+        def queue_task():
+            try:
+                process_transaction.delay(webhook_data.transaction_id)
+                logger.info(f"Task queued for txn: {webhook_data.transaction_id}")
+            except Exception as e:
+                logger.warning(f"Celery queue failed (Redis may be unavailable): {e}")
+        
+        threading.Thread(target=queue_task, daemon=True).start()
 
         elapsed = (datetime.utcnow() - start_time).total_seconds() * 1000
         logger.info(f"Webhook processed in {elapsed:.2f}ms for txn: {webhook_data.transaction_id}")

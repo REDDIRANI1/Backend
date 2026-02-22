@@ -15,7 +15,7 @@ engine = create_engine(
     echo=False,
     connect_args={
         "connect_timeout": 2,  # Faster timeout to meet < 500ms requirement
-        "options": "-c statement_timeout=3000ms"  # Kill any query taking > 3s
+        "options": "-c statement_timeout=3000"  # Kill any query taking > 3s
     }
 )
 
