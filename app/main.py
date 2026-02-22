@@ -145,12 +145,24 @@ async def receive_webhook(
         )
         
     except IntegrityError:
-        # This handles the duplicate transaction_id (idempotency)
+        # Duplicate transaction_id (idempotency) - still ensure processing runs
         db.rollback()
-        logger.info(f"Duplicate webhook (IntegrityError) for txn: {webhook_data.transaction_id}")
+        txn_id = webhook_data.transaction_id
+        logger.info(f"Duplicate webhook (IntegrityError) for txn: {txn_id}")
+
+        # Also trigger processing - first request may have failed to queue
+        def queue_task():
+            try:
+                process_transaction.delay(txn_id)
+                logger.info(f"Task queued via Celery (duplicate path) for txn: {txn_id}")
+            except Exception as e:
+                logger.warning(f"Celery unavailable, using thread fallback (duplicate): {e}")
+                _process_transaction_in_thread(txn_id)
+        threading.Thread(target=queue_task, daemon=True).start()
+
         return WebhookResponse(
             message="Webhook received (duplicate)",
-            transaction_id=webhook_data.transaction_id
+            transaction_id=txn_id
         )
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
