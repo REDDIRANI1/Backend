@@ -29,11 +29,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Add CORS middleware to allow cross-origin requests
+# Add CORS middleware - allow_credentials=False when using "*" (browser requirement)
+# Otherwise browser aborts with "Credential is not supported if Allow-Origin is '*'"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
