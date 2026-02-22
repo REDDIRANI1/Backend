@@ -78,6 +78,32 @@ def _process_transaction_in_thread(transaction_id: str) -> None:
         logger.error(f"Thread fallback error for {transaction_id}: {e}")
 
 
+def _queue_processing_with_fast_fallback(transaction_id: str) -> None:
+    """
+    Try Celery with a 2s timeout. If Redis is down, Celery.delay() blocks 30+ s
+    and the evaluator (40s limit) fails. So we give up after 2s and use thread.
+    """
+    celery_ok = threading.Event()
+    celery_success = []
+
+    def try_celery():
+        try:
+            process_transaction.delay(transaction_id)
+            celery_success.append(True)
+            logger.info(f"Task queued via Celery for txn: {transaction_id}")
+        except Exception as e:
+            logger.warning(f"Celery failed: {e}")
+        finally:
+            celery_ok.set()
+
+    t = threading.Thread(target=try_celery, daemon=True)
+    t.start()
+    # Wait at most 2s for Celery; if still blocking on Redis, use thread fallback
+    if not celery_ok.wait(timeout=2) or not celery_success:
+        logger.info(f"Celery slow/unavailable, using thread fallback for txn: {transaction_id}")
+        _process_transaction_in_thread(transaction_id)
+
+
 @app.get("/", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """
@@ -123,19 +149,9 @@ async def receive_webhook(
         db.commit()
         
         # Trigger background processing - MUST NOT BLOCK response
-        # 1. Try Celery (needs Redis + Celery worker on Render)
-        # 2. Fallback: run processing in thread (works without Redis - Render free tier)
+        # Use fast fallback: try Celery max 2s, then thread (so we finish within 40s)
         txn_id = webhook_data.transaction_id
-
-        def queue_task():
-            try:
-                process_transaction.delay(txn_id)
-                logger.info(f"Task queued via Celery for txn: {txn_id}")
-            except Exception as e:
-                logger.warning(f"Celery unavailable (Redis may be unconfigured), using thread fallback: {e}")
-                _process_transaction_in_thread(txn_id)
-
-        threading.Thread(target=queue_task, daemon=True).start()
+        threading.Thread(target=_queue_processing_with_fast_fallback, args=(txn_id,), daemon=True).start()
 
         elapsed = (datetime.utcnow() - start_time).total_seconds() * 1000
         logger.info(f"Webhook processed in {elapsed:.2f}ms for txn: {webhook_data.transaction_id}")
@@ -150,17 +166,7 @@ async def receive_webhook(
         db.rollback()
         txn_id = webhook_data.transaction_id
         logger.info(f"Duplicate webhook (IntegrityError) for txn: {txn_id}")
-
-        # Also trigger processing - first request may have failed to queue
-        def queue_task():
-            try:
-                process_transaction.delay(txn_id)
-                logger.info(f"Task queued via Celery (duplicate path) for txn: {txn_id}")
-            except Exception as e:
-                logger.warning(f"Celery unavailable, using thread fallback (duplicate): {e}")
-                _process_transaction_in_thread(txn_id)
-        threading.Thread(target=queue_task, daemon=True).start()
-
+        threading.Thread(target=_queue_processing_with_fast_fallback, args=(txn_id,), daemon=True).start()
         return WebhookResponse(
             message="Webhook received (duplicate)",
             transaction_id=txn_id
